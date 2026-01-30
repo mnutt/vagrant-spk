@@ -37,3 +37,24 @@ for full details.
 
 See the [example app listing in the vagrant-spk
 documentation.](https://docs.sandstorm.io/en/latest/vagrant-spk/customizing/#example-setups)
+
+## Running tests
+
+The test suite uses [pytest](https://pytest.org/) and [uv](https://docs.astral.sh/uv/) for dependency management.
+
+Run all tests:
+
+    uv run pytest
+
+Run tests with verbose output:
+
+    uv run pytest -v
+
+Run tests for a specific script:
+
+    uv run pytest tests/test_lima_spk.py
+    uv run pytest tests/test_vagrant_spk.py
+
+Run shared tests that verify both scripts:
+
+    uv run pytest tests/test_shared.py

@@ -9,3 +9,10 @@ vagrant-spk.spec
 # The following file patterns are auto-created by editors like Emacs.
 .#*
 *~
+
+# Python/uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+uv.lock

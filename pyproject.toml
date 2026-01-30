@@ -1,0 +1,19 @@
+[project]
+name = "vagrant-spk"
+version = "1.2"
+description = "Tools for packaging apps for Sandstorm using Vagrant or Lima"
+requires-python = ">=3.8"
+
+[dependency-groups]
+test = [
+    "pytest>=7.0",
+    "pytest-subprocess>=1.5",
+    "pytest-mock>=3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
