@@ -283,6 +283,14 @@ def run_pkgdef_util_in_vm(instance_name, tool_args, assert_exit_success=True):
         assert_exit_success=assert_exit_success,
     )
 
+def load_test_app_id(work_directory):
+    test_app_id_path = os.path.join(work_directory, DEV_TEST_APP_ID_HOST_PATH)
+    if not os.path.exists(test_app_id_path):
+        return None
+    with open(test_app_id_path, "r") as f:
+        value = f.read().strip()
+        return value or None
+
 def check_lima_installed():
     """Check that limactl is installed and available."""
     try:
@@ -709,12 +717,7 @@ def pack(args):
     if use_dev_release:
         test_pkgdef_guest_path = DEV_TEST_VM_PKGDEF_PATH
         test_app_id_host_path = os.path.join(args.work_directory, DEV_TEST_APP_ID_HOST_PATH)
-        test_app_id = None
-        if os.path.exists(test_app_id_host_path):
-            with open(test_app_id_host_path, "r") as f:
-                value = f.read().strip()
-                if value:
-                    test_app_id = value
+        test_app_id = load_test_app_id(args.work_directory)
         if not test_app_id:
             print(f"No {DEV_TEST_APP_ID_HOST_PATH} detected, creating it. (you should commit this file)")
             keygen_output = call_lima_ssh_command_capturing_output(
