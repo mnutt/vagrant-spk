@@ -722,7 +722,7 @@ def pack(args):
             print(f"No {DEV_TEST_APP_ID_HOST_PATH} detected, creating it. (you should commit this file)")
             keygen_output = call_lima_ssh_command_capturing_output(
                 instance_name,
-                "spk keygen",
+                f"spk keygen --keyring={shlex.quote(KEYRING_PATH)}",
             ).decode("utf-8", errors="replace")
             keygen_lines = [line.strip() for line in keygen_output.splitlines() if line.strip()]
             if len(keygen_lines) != 1:
@@ -737,6 +737,8 @@ def pack(args):
             with open(test_app_id_host_path, "w") as f:
                 f.write(test_app_id + "\n")
             print(f"Created test app id {test_app_id} and added its key to your keychain.")
+            print("You can export the private test key in base64 format for use in an environment variable:")
+            print(f"  lima-spk getkey {test_app_id} | base64 | tr -d '\\n'")
 
         try:
             rewrite_args = [
@@ -758,7 +760,7 @@ def pack(args):
             call_lima_shell_command(
                 instance_name,
                 "cd /opt/app/.sandstorm/ && " +
-                f"spk pack --pkg-def={shlex.quote(test_pkgdef_guest_path)}:pkgdef /tmp/sandstorm-package.spk && " +
+                f"spk pack --keyring={shlex.quote(KEYRING_PATH)} --pkg-def={shlex.quote(test_pkgdef_guest_path)}:pkgdef /tmp/sandstorm-package.spk && " +
                 "spk verify --details /tmp/sandstorm-package.spk && " +
                 "mv /tmp/sandstorm-package.spk /opt/app/sandstorm-package.spk"
             )
