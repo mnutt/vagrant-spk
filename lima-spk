@@ -254,6 +254,9 @@ def call_lima_shell_command(instance_name, command_string, interactive=False):
         return subprocess.check_call(['limactl', 'shell', '--workdir', '/opt/app', instance_name, 'bash', '-c', command_string])
 
 KEYRING_PATH = "/host-dot-sandstorm/sandstorm-keyring"
+DEV_TEST_APP_ID_HOST_PATH = ".sandstorm/sandstorm-test-app-id"
+DEV_TEST_VM_PKGDEF_PATH = "/tmp/lima-spk-dev-test-pkgdef.capnp"
+CAPNP_VM_IMPORT_PATH = "/opt/sandstorm/latest/usr/include"
 
 def call_spk_command(instance_name, spk_subcommand, extra_args="", use_keyring=True, interactive=False):
     """Execute an spk command in the Lima VM."""
@@ -262,6 +265,23 @@ def call_spk_command(instance_name, spk_subcommand, extra_args="", use_keyring=T
     # Clean up extra spaces
     command = " ".join(command.split())
     return call_lima_shell_command(instance_name, command, interactive=interactive)
+
+def run_pkgdef_util_in_vm(instance_name, tool_args, assert_exit_success=True):
+    """Run pkgdef-util.py in the VM by piping script contents over stdin."""
+    pkgdef_util_path = os.path.join(CODE_DIR, "pkgdef-util.py")
+    if not os.path.exists(pkgdef_util_path):
+        raise ValueError(f"Missing pkgdef utility script: {pkgdef_util_path}")
+
+    with open(pkgdef_util_path, "rb") as f:
+        pkgdef_util_contents = f.read()
+
+    command = "python3 - " + " ".join(shlex.quote(arg) for arg in tool_args)
+    return call_lima_ssh_command_providing_stdin(
+        instance_name,
+        command,
+        stdin=pkgdef_util_contents,
+        assert_exit_success=assert_exit_success,
+    )
 
 def check_lima_installed():
     """Check that limactl is installed and available."""
@@ -677,22 +697,82 @@ def shell(args):
         "NOTE: You should discard all sandstorm-files.list changes from this session to avoid bloat!\n")
 
 def pack(args):
-    if len(args.command_specific_args) == 0:
-        print("Please specify an output file - e.g.")
-        print("  lima-spk pack myapp.spk")
+    use_dev_release = args.dev or args.pre
+    set_version = getattr(args, "set_version", None)
+    if set_version and not use_dev_release:
+        print("--set-version may only be used with --dev/--pre")
         sys.exit(1)
-
+    output_spk = args.output_spk
     check_dot_sandstorm(args.work_directory)
     instance_name = require_running_vm(args.work_directory)
-    output_spk = args.command_specific_args[0]
 
-    call_lima_shell_command(
-        instance_name,
-        "cd /opt/app/.sandstorm/ && " +
-        "spk pack --keyring=/host-dot-sandstorm/sandstorm-keyring --pkg-def=/opt/app/.sandstorm/sandstorm-pkgdef.capnp:pkgdef /tmp/sandstorm-package.spk && " +
-        "spk verify --details /tmp/sandstorm-package.spk && " +
-        "mv /tmp/sandstorm-package.spk /opt/app/sandstorm-package.spk"
-    )
+    if use_dev_release:
+        test_pkgdef_guest_path = DEV_TEST_VM_PKGDEF_PATH
+        test_app_id_host_path = os.path.join(args.work_directory, DEV_TEST_APP_ID_HOST_PATH)
+        test_app_id = None
+        if os.path.exists(test_app_id_host_path):
+            with open(test_app_id_host_path, "r") as f:
+                value = f.read().strip()
+                if value:
+                    test_app_id = value
+        if not test_app_id:
+            print(f"No {DEV_TEST_APP_ID_HOST_PATH} detected, creating it. (you should commit this file)")
+            keygen_output = call_lima_ssh_command_capturing_output(
+                instance_name,
+                "spk keygen",
+            ).decode("utf-8", errors="replace")
+            keygen_lines = [line.strip() for line in keygen_output.splitlines() if line.strip()]
+            if len(keygen_lines) != 1:
+                raise ValueError(
+                    f"Unexpected spk keygen output; expected exactly one id line, got: {keygen_output!r}"
+                )
+            test_app_id = keygen_lines[0]
+            if not re.fullmatch(r"[a-z0-9]{20,}", test_app_id):
+                raise ValueError(
+                    f"Failed to generate a valid test app id via spk keygen: {test_app_id!r}"
+                )
+            with open(test_app_id_host_path, "w") as f:
+                f.write(test_app_id + "\n")
+            print(f"Created test app id {test_app_id} and added its key to your keychain.")
+
+        try:
+            rewrite_args = [
+                "--import-path",
+                CAPNP_VM_IMPORT_PATH,
+                "/opt/app/.sandstorm/sandstorm-pkgdef.capnp",
+                test_app_id,
+                "--append-title-suffix",
+                " Test",
+                "--strip-signing",
+            ]
+            if set_version:
+                rewrite_args.extend(["--set-version", set_version])
+            rewrite_args.extend(["--output", test_pkgdef_guest_path])
+            run_pkgdef_util_in_vm(
+                instance_name,
+                rewrite_args,
+            )
+            call_lima_shell_command(
+                instance_name,
+                "cd /opt/app/.sandstorm/ && " +
+                f"spk pack --pkg-def={shlex.quote(test_pkgdef_guest_path)}:pkgdef /tmp/sandstorm-package.spk && " +
+                "spk verify --details /tmp/sandstorm-package.spk && " +
+                "mv /tmp/sandstorm-package.spk /opt/app/sandstorm-package.spk"
+            )
+        finally:
+            call_lima_ssh_command_capturing_output(
+                instance_name,
+                f"rm -f {shlex.quote(DEV_TEST_VM_PKGDEF_PATH)}",
+                assert_exit_success=False
+            )
+    else:
+        call_lima_shell_command(
+            instance_name,
+            "cd /opt/app/.sandstorm/ && " +
+            "spk pack --keyring=/host-dot-sandstorm/sandstorm-keyring --pkg-def=/opt/app/.sandstorm/sandstorm-pkgdef.capnp:pkgdef /tmp/sandstorm-package.spk && " +
+            "spk verify --details /tmp/sandstorm-package.spk && " +
+            "mv /tmp/sandstorm-package.spk /opt/app/sandstorm-package.spk"
+        )
 
     shutil.move(os.path.join(args.work_directory, "sandstorm-package.spk"), output_spk)
     print(f"package produced at {output_spk}")
@@ -825,13 +905,6 @@ def main():
             "  latest version included in lima-spk."),
         Command('vm', vm_subcommand,
             "Manage the Lima VM (up, halt, ssh, destroy, status, provision, reload)."),
-        Command('vm up', None, "Start the Lima VM (and create it if needed)"),
-        Command('vm halt', None, "Stop the Lima VM."),
-        Command('vm destroy', None, "Delete the Lima VM (but leave --work-directory untouched)."),
-        Command('vm ssh', None, "SSH into the Lima VM."),
-        Command('vm status', None, "Show the status of the Lima VM."),
-        Command('vm provision', None, "Re-run the provisioning scripts."),
-        Command('vm reload', None, "Restart the VM and re-run provisioning."),
         Command('init', init,
             "Initialize fresh Sandstorm package definition \n"
             "  resources in --work-directory."),
@@ -841,7 +914,10 @@ def main():
         Command('enter-grain', shell, "Get a shell within a grain"),
         Command('pack', pack,
             "Pack the current app into a \n"
-            "  Sandstorm package."),
+            "  Sandstorm package. Pass --dev to \n"
+            "  use .sandstorm/sandstorm-test-app-id \n"
+            "  with a temporary VM pkgdef, \n"
+            "  stripping all embedded PGP metadata."),
         Command('verify', verify,
             "Show details of the specified Sandstorm package."),
         Command('publish', publish,
@@ -858,10 +934,7 @@ def main():
     ]
 
     op_to_func = dict((c.name, c.func) for c in operations if c.func)
-    ops_helptext = '\n'.join(c.name + ': ' + c.helptext for c in operations if not c.hidden)
     parser = argparse.ArgumentParser(prog=sys.argv[0], formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("command", choices=[c.name for c in operations if c.func], help=ops_helptext)
-    parser.add_argument("command_specific_args", nargs="*")
     parser.add_argument("-V", "--version", action="version", version="lima-spk "+__version__)
     parser.add_argument(
         "--work-directory",
@@ -871,7 +944,31 @@ def main():
              "and other configuration).  [Default: current \n"
              "working directory]")
     parser.add_argument('--noninteractive', action='store_true', help='Suppress overwrite prompts (use in scripts)')
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    for operation in operations:
+        if not operation.func:
+            continue
+        subparser = subparsers.add_parser(
+            operation.name,
+            formatter_class=argparse.RawTextHelpFormatter,
+            help=operation.helptext.splitlines()[0],
+            description=operation.helptext,
+        )
+        if operation.name == "pack":
+            subparser.add_argument("--dev", action="store_true", help="Build using test app identity")
+            subparser.add_argument("--pre", action="store_true", help=argparse.SUPPRESS)
+            subparser.add_argument("--set-version", help="Set manifest.appMarketingVersion.defaultText (requires --dev)")
+            subparser.add_argument("output_spk")
+        else:
+            subparser.add_argument("command_specific_args", nargs="*")
+
     args = parser.parse_args(sys.argv[1:])
+    if args.command == "pack":
+        # Keep legacy alias semantics while using strict argparse validation.
+        if args.pre:
+            args.dev = True
+        args.command_specific_args = [args.output_spk]
     operation = op_to_func[args.command]
     operation(args)
 
