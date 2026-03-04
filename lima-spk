@@ -532,6 +532,11 @@ def bring_up_vm(args):
 
     status = get_lima_instance_status(instance_name)
 
+    start_cmd = ['limactl', 'start', '--progress']
+    if args.timeout:
+        start_cmd.extend(['--timeout', args.timeout])
+    start_cmd.append(instance_name)
+
     if status is None:
         # Instance doesn't exist, create it
         print(f"Creating Lima instance {instance_name}...")
@@ -543,16 +548,16 @@ def bring_up_vm(args):
             '--set', mount_set,
             lima_yaml_path
         ])
-        subprocess.check_call(['limactl', 'start', '--progress', instance_name])
+        subprocess.check_call(start_cmd)
     elif status == 'Stopped':
         # Instance exists but is stopped
         print(f"Starting Lima instance {instance_name}...")
-        subprocess.check_call(['limactl', 'start', '--progress', instance_name])
+        subprocess.check_call(start_cmd)
     elif status == 'Running':
         print(f"Lima instance {instance_name} is already running.")
     else:
         print(f"Lima instance {instance_name} is in state: {status}")
-        subprocess.check_call(['limactl', 'start', '--progress', instance_name])
+        subprocess.check_call(start_cmd)
 
     print(f"\nYour virtual server should be running at http://local.sandstorm.io:{SANDSTORM_PORT}")
 
@@ -887,6 +892,9 @@ def vm_subcommand(args):
     instance_name = get_lima_instance_name(args.work_directory)
 
     subcommand = args.command_specific_args[0]
+    if args.timeout and subcommand != 'up':
+        sys.stderr.write("--timeout can only be used with 'lima-spk vm up'.\n")
+        sys.exit(1)
 
     if subcommand == 'up':
         bring_up_vm(args)
@@ -991,6 +999,9 @@ def main():
             subparser.add_argument("--pre", action="store_true", help=argparse.SUPPRESS)
             subparser.add_argument("--set-version", help="Set manifest.appMarketingVersion.defaultText (requires --dev)")
             subparser.add_argument("output_spk")
+        elif operation.name == "vm":
+            subparser.add_argument("--timeout", help="Pass timeout value to `limactl start` for `vm up`")
+            subparser.add_argument("command_specific_args", nargs="*")
         else:
             subparser.add_argument("command_specific_args", nargs="*")
 
