@@ -791,7 +791,7 @@ def pack(args):
             call_lima_shell_command(
                 instance_name,
                 "cd /opt/app/.sandstorm/ && " +
-                f"spk pack --keyring={shlex.quote(KEYRING_PATH)} --pkg-def={shlex.quote(test_pkgdef_guest_path)}:pkgdef /tmp/sandstorm-package.spk && " +
+                f"spk pack --keyring={shlex.quote(KEYRING_PATH)} --pkg-def={shlex.quote(test_pkgdef_guest_path)}:pkgdef /tmp/sandstorm-package.spk 1>&2 && " +
                 "spk verify --details /tmp/sandstorm-package.spk && " +
                 "mv /tmp/sandstorm-package.spk /opt/app/sandstorm-package.spk"
             )
@@ -805,13 +805,13 @@ def pack(args):
         call_lima_shell_command(
             instance_name,
             "cd /opt/app/.sandstorm/ && " +
-            "spk pack --keyring=/host-dot-sandstorm/sandstorm-keyring --pkg-def=/opt/app/.sandstorm/sandstorm-pkgdef.capnp:pkgdef /tmp/sandstorm-package.spk && " +
+            "spk pack --keyring=/host-dot-sandstorm/sandstorm-keyring --pkg-def=/opt/app/.sandstorm/sandstorm-pkgdef.capnp:pkgdef /tmp/sandstorm-package.spk 1>&2 && " +
             "spk verify --details /tmp/sandstorm-package.spk && " +
             "mv /tmp/sandstorm-package.spk /opt/app/sandstorm-package.spk"
         )
 
     shutil.move(os.path.join(args.work_directory, "sandstorm-package.spk"), output_spk)
-    print(f"package produced at {output_spk}")
+    sys.stderr.write(f"package produced at {output_spk}\n")
 
 def verify(args):
     if len(args.command_specific_args) == 0:
