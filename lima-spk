@@ -283,6 +283,31 @@ def run_pkgdef_util_in_vm(instance_name, tool_args, assert_exit_success=True):
         assert_exit_success=assert_exit_success,
     )
 
+def require_capnp_in_vm(instance_name):
+    """Ensure capnp CLI is available in the VM before pkgdef rewrite."""
+    try:
+        call_lima_ssh_command_capturing_output(
+            instance_name,
+            "command -v capnp >/dev/null",
+        )
+    except ValueError:
+        sys.stderr.write(
+            "Error: `capnp` is not installed in the VM, but `lima-spk pack --dev` needs it.\n"
+        )
+        sys.stderr.write(
+            "Install Cap'n Proto in the VM (or make sure `capnp` is on PATH), then retry.\n"
+        )
+        sys.stderr.write(
+            "Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y capnproto\n"
+        )
+        sys.stderr.write(
+            "For persistence, add this install to .sandstorm/setup.sh.\n"
+        )
+        sys.stderr.write(
+            "For a one-off fix, run `lima-spk vm ssh` then `sudo apt-get install -y capnproto`.\n"
+        )
+        sys.exit(1)
+
 def load_test_app_id(work_directory):
     test_app_id_path = os.path.join(work_directory, DEV_TEST_APP_ID_HOST_PATH)
     if not os.path.exists(test_app_id_path):
@@ -718,6 +743,7 @@ def pack(args):
         test_pkgdef_guest_path = DEV_TEST_VM_PKGDEF_PATH
         test_app_id_host_path = os.path.join(args.work_directory, DEV_TEST_APP_ID_HOST_PATH)
         test_app_id = load_test_app_id(args.work_directory)
+        require_capnp_in_vm(instance_name)
         if not test_app_id:
             print(f"No {DEV_TEST_APP_ID_HOST_PATH} detected, creating it. (you should commit this file)")
             keygen_output = call_lima_ssh_command_capturing_output(
